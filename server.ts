@@ -22,9 +22,13 @@ interface Room {
   timer?: NodeJS.Timeout;
   roundStartTime: number;
   disconnectedPlayers: Record<string, number>;
+  isPublic?: boolean; // New field to identify public rooms
 }
 
 const rooms: Record<string, Room> = {};
+const publicRooms: string[] = [];
+const MAX_PLAYERS_PER_ROOM = 10;
+const MIN_PLAYERS_PER_ROOM = 2;
 
 const words = [
   "apple",
@@ -139,9 +143,130 @@ function shuffleArray(array: string[]): string[] {
 
 const shuffledWords = shuffleArray(words);
 
+// Schedule public games at 10 AM and 10 PM IST
+function schedulePublicGames() {
+  const now = new Date();
+  const ISTOffset = 5.5 * 60 * 60 * 1000; // IST is UTC+5:30
+  const nowIST = new Date(now.getTime() + ISTOffset);
+
+  const next10AM = new Date(nowIST);
+  next10AM.setUTCHours(4, 30, 0, 0); // 10 AM IST = 4:30 AM UTC
+  if (nowIST > next10AM) next10AM.setDate(next10AM.getDate() + 1);
+
+  const next10PM = new Date(nowIST);
+  next10PM.setUTCHours(16, 30, 0, 0); // 10 PM IST = 4:30 PM UTC
+  if (nowIST > next10PM) next10PM.setDate(next10PM.getDate() + 1);
+
+  const timeTo10AM = next10AM.getTime() - nowIST.getTime();
+  const timeTo10PM = next10PM.getTime() - nowIST.getTime();
+
+  setTimeout(() => startPublicGame("10AM"), timeTo10AM);
+  setTimeout(() => startPublicGame("10PM"), timeTo10PM);
+
+  // Reschedule every day
+  setInterval(() => startPublicGame("10AM"), 24 * 60 * 60 * 1000);
+  setInterval(() => startPublicGame("10PM"), 24 * 60 * 60 * 1000);
+}
+
+function startPublicGame(timeSlot: string) {
+  const roomId = `public-${timeSlot}-${Date.now()}`;
+  rooms[roomId] = {
+    players: [],
+    admin: "system",
+    currentDrawer: "",
+    currentWord: "",
+    scores: {},
+    round: 0,
+    maxRounds: 3,
+    usedWords: [],
+    gameStarted: false,
+    roundStartTime: 0,
+    disconnectedPlayers: {},
+    isPublic: true,
+  };
+  publicRooms.push(roomId);
+  console.log(`Public game room ${roomId} created for ${timeSlot}`);
+
+  // Start game after 60 seconds
+  setTimeout(() => {
+    if (rooms[roomId] && rooms[roomId].players.length >= MIN_PLAYERS_PER_ROOM) {
+      rooms[roomId].gameStarted = true;
+      io.to(roomId).emit("gameStarted");
+      startNewRound(roomId);
+    } else {
+      io.to(roomId).emit("gameCancelled", "Not enough players");
+      delete rooms[roomId];
+      publicRooms.splice(publicRooms.indexOf(roomId), 1);
+    }
+  }, 60 * 1000); // 60-second buffer
+}
+
+schedulePublicGames();
+
 io.on("connection", (socket) => {
   let currentRoomId: string | null = null;
   let currentUsername: string | null = null;
+
+  socket.on("joinPublicGame", ({ username }: { username: string }) => {
+    currentUsername = username;
+    const availableRoom = publicRooms.find(
+      (roomId) =>
+        rooms[roomId] &&
+        rooms[roomId].isPublic &&
+        rooms[roomId].players.length < MAX_PLAYERS_PER_ROOM &&
+        !rooms[roomId].gameStarted
+    );
+
+    if (availableRoom) {
+      currentRoomId = availableRoom;
+    } else {
+      currentRoomId = `public-${Date.now()}`;
+      rooms[currentRoomId] = {
+        players: [],
+        admin: "system",
+        currentDrawer: "",
+        currentWord: "",
+        scores: {},
+        round: 0,
+        maxRounds: 3,
+        usedWords: [],
+        gameStarted: false,
+        roundStartTime: 0,
+        disconnectedPlayers: {},
+        isPublic: true,
+      };
+      publicRooms.push(currentRoomId);
+      setTimeout(() => {
+        if (
+          currentRoomId &&
+          rooms[currentRoomId] &&
+          rooms[currentRoomId].players.length >= MIN_PLAYERS_PER_ROOM
+        ) {
+          rooms[currentRoomId].gameStarted = true;
+          io.to(currentRoomId).emit("gameStarted");
+          startNewRound(currentRoomId);
+        } else {
+          io.to(currentRoomId!).emit("gameCancelled", "Not enough players");
+          delete rooms[currentRoomId!];
+          publicRooms.splice(publicRooms.indexOf(currentRoomId!), 1);
+        }
+      }, 60 * 1000);
+    }
+
+    socket.join(currentRoomId);
+    const room = rooms[currentRoomId];
+    if (!room.players.includes(username)) {
+      room.players.push(username);
+      room.scores[username] = 0;
+    }
+
+    io.to(currentRoomId).emit("playersUpdate", {
+      players: room.players,
+      scores: room.scores,
+      admin: room.admin,
+    });
+    socket.emit("joinedPublicGame", { roomId: currentRoomId });
+  });
 
   socket.on(
     "joinRoom",

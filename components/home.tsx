@@ -2,12 +2,22 @@
 
 import { useState, useEffect, useRef } from "react";
 import io, { Socket } from "socket.io-client";
+import { Button } from "@/components/ui/button";
+import { Input } from "@/components/ui/input";
+import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import {
+  Dialog,
+  DialogContent,
+  DialogHeader,
+  DialogTitle,
+} from "@/components/ui/dialog";
 
 export default function Home() {
   const [socket, setSocket] = useState<Socket | null>(null);
   const [roomId, setRoomId] = useState("");
   const [username, setUsername] = useState("");
   const [isJoined, setIsJoined] = useState(false);
+  const [isPublicGame, setIsPublicGame] = useState(false);
   const [players, setPlayers] = useState<string[]>([]);
   const [scores, setScores] = useState<Record<string, number>>({});
   const [word, setWord] = useState("");
@@ -22,6 +32,8 @@ export default function Home() {
   const [isAdmin, setIsAdmin] = useState(false);
   const [gameStarted, setGameStarted] = useState(false);
   const [roundStartTime, setRoundStartTime] = useState<number>(0);
+  const [bufferTimeLeft, setBufferTimeLeft] = useState<number | null>(null);
+  const [gameCancelled, setGameCancelled] = useState(false);
 
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const timerRef = useRef<NodeJS.Timeout | null>(null);
@@ -44,7 +56,11 @@ export default function Home() {
     newSocket.on("connect", () => {
       console.log("Connected to WebSocket server");
       if (isJoined && roomId) {
-        newSocket.emit("joinRoom", { roomId, username });
+        if (isPublicGame) {
+          newSocket.emit("joinPublicGame", { username });
+        } else {
+          newSocket.emit("joinRoom", { roomId, username });
+        }
       }
     });
 
@@ -56,8 +72,26 @@ export default function Home() {
     newSocket.on("reconnect", () => {
       console.log("Reconnected to WebSocket server");
       if (isJoined && roomId) {
-        newSocket.emit("joinRoom", { roomId, username });
+        if (isPublicGame) {
+          newSocket.emit("joinPublicGame", { username });
+        } else {
+          newSocket.emit("joinRoom", { roomId, username });
+        }
       }
+    });
+
+    newSocket.on("joinedPublicGame", ({ roomId }) => {
+      setRoomId(roomId);
+      setBufferTimeLeft(60);
+      const bufferInterval = setInterval(() => {
+        setBufferTimeLeft((prev) => (prev && prev > 0 ? prev - 1 : 0));
+      }, 1000);
+      setTimeout(() => clearInterval(bufferInterval), 60 * 1000);
+    });
+
+    newSocket.on("gameCancelled", (message) => {
+      setGameCancelled(true);
+      alert(message);
     });
 
     newSocket.on("playersUpdate", ({ players, scores, admin }) => {
@@ -70,6 +104,7 @@ export default function Home() {
     newSocket.on("gameStarted", () => {
       console.log("gameStarted received");
       setGameStarted(true);
+      setBufferTimeLeft(null);
     });
 
     newSocket.on("startDrawing", ({ drawer, word, round, maxRounds, time }) => {
@@ -133,7 +168,7 @@ export default function Home() {
     newSocket.on("timeUpdate", (time: number) => {
       console.log("timeUpdate received:", time);
       setTimeLeft(time ?? 90);
-      setRoundStartTime(Date.now() - (90 - time) * 1000); // Sync client timer with server
+      setRoundStartTime(Date.now() - (90 - time) * 1000);
     });
 
     newSocket.on("gameEnd", ({ scores, winner }) => {
@@ -148,7 +183,7 @@ export default function Home() {
       newSocket.disconnect();
       if (timerRef.current) clearInterval(timerRef.current);
     };
-  }, [currentDrawer, isJoined, roomId, username]);
+  }, [currentDrawer, isJoined, roomId, username, isPublicGame]);
 
   const clearCanvas = () => {
     if (canvasRef.current) {
@@ -159,7 +194,15 @@ export default function Home() {
     }
   };
 
-  const joinRoom = () => {
+  const joinPublicGame = () => {
+    if (socket && username) {
+      socket.emit("joinPublicGame", { username });
+      setIsJoined(true);
+      setIsPublicGame(true);
+    }
+  };
+
+  const joinPrivateRoom = () => {
     if (socket && roomId && username) {
       socket.emit("joinRoom", { roomId, username });
       setIsJoined(true);
@@ -235,128 +278,212 @@ export default function Home() {
 
   if (!isJoined) {
     return (
-      <div className="flex min-h-screen items-center justify-center">
-        <div className="space-y-4">
-          <input
-            type="text"
-            placeholder="Room ID"
-            value={roomId}
-            onChange={(e) => setRoomId(e.target.value)}
-            className="block w-full p-2 border"
-          />
-          <input
-            type="text"
-            placeholder="Username"
-            value={username}
-            onChange={(e) => setUsername(e.target.value)}
-            className="block w-full p-2 border"
-          />
-          <button
-            onClick={joinRoom}
-            className="px-4 py-2 bg-blue-500 text-white"
-          >
-            Join Room
-          </button>
-        </div>
+      <div className="flex min-h-screen items-center justify-center bg-gray-100">
+        <Card className="w-full max-w-md p-6">
+          <CardHeader>
+            <CardTitle>Join a Game</CardTitle>
+          </CardHeader>
+          <CardContent className="space-y-4">
+            <Input
+              type="text"
+              placeholder="Username"
+              value={username}
+              onChange={(e) => setUsername(e.target.value)}
+              className="w-full"
+            />
+            <Button onClick={joinPublicGame} className="w-full">
+              Join Public Game (10 AM / 10 PM IST)
+            </Button>
+            <div className="space-y-2">
+              <Input
+                type="text"
+                placeholder="Room ID"
+                value={roomId}
+                onChange={(e) => setRoomId(e.target.value)}
+                className="w-full"
+              />
+              <Button
+                onClick={joinPrivateRoom}
+                variant="outline"
+                className="w-full"
+              >
+                Join Private Room
+              </Button>
+            </div>
+          </CardContent>
+        </Card>
+      </div>
+    );
+  }
+
+  if (isPublicGame && bufferTimeLeft !== null && bufferTimeLeft > 0) {
+    return (
+      <div className="flex min-h-screen items-center justify-center bg-gray-100">
+        <Card className="w-full max-w-md p-6">
+          <CardHeader>
+            <CardTitle>
+              Public Game Starting in {bufferTimeLeft} seconds
+            </CardTitle>
+          </CardHeader>
+          <CardContent className="space-y-4">
+            <div>
+              <h3 className="text-lg font-semibold">FAQ / Rules</h3>
+              <ul className="list-disc pl-5 text-sm">
+                <li>Game starts at 10:01 AM/PM IST</li>
+                <li>3 rounds, 10 players max per room</li>
+                <li>Guess the word drawn by the current player</li>
+                <li>Earn points for correct guesses!</li>
+              </ul>
+            </div>
+            <div>
+              <h3 className="text-lg font-semibold">Players Joined:</h3>
+              <ul className="list-disc pl-5">
+                {players.map((player) => (
+                  <li key={player}>{player}</li>
+                ))}
+              </ul>
+            </div>
+          </CardContent>
+        </Card>
+      </div>
+    );
+  }
+
+  if (gameCancelled) {
+    return (
+      <div className="flex min-h-screen items-center justify-center bg-gray-100">
+        <Card className="w-full max-w-md p-6">
+          <CardHeader>
+            <CardTitle>Game Cancelled</CardTitle>
+          </CardHeader>
+          <CardContent>
+            <p>Not enough players joined. Try again at the next public game!</p>
+          </CardContent>
+        </Card>
       </div>
     );
   }
 
   if (gameEnded) {
     return (
-      <div className="flex min-h-screen items-center justify-center">
-        <div className="text-center">
-          <h1 className="text-2xl mb-4">Game Over!</h1>
-          <p>Winner: {gameWinner}</p>
-          <h2 className="mt-4">Final Scores:</h2>
-          <ul>
-            {Object.entries(scores).map(([player, score]) => (
-              <li key={player}>
-                {player}: {score}
-              </li>
-            ))}
-          </ul>
-        </div>
-      </div>
+      <Dialog open={gameEnded}>
+        <DialogContent className="sm:max-w-md">
+          <DialogHeader>
+            <DialogTitle className="text-2xl">Game Over!</DialogTitle>
+          </DialogHeader>
+          <div className="space-y-4">
+            <p className="text-lg">Winner: {gameWinner}</p>
+            <h3 className="text-lg font-semibold">Final Scores:</h3>
+            <ul className="list-disc pl-5">
+              {Object.entries(scores).map(([player, score]) => (
+                <li key={player}>
+                  {player}: {score}
+                </li>
+              ))}
+            </ul>
+          </div>
+        </DialogContent>
+      </Dialog>
     );
   }
 
   if (!gameStarted) {
     return (
-      <div className="flex min-h-screen items-center justify-center">
-        <div className="text-center">
-          <h2>Waiting for the game to start...</h2>
-          <h3>Players in Room:</h3>
-          <ul>
-            {players.map((player) => (
-              <li key={player}>
-                {player} {player === username && isAdmin && "(Admin)"}
-              </li>
-            ))}
-          </ul>
-          {isAdmin && (
-            <button
-              onClick={startGame}
-              className="mt-4 px-4 py-2 bg-blue-500 text-white"
-            >
-              Start Game
-            </button>
-          )}
-        </div>
+      <div className="flex min-h-screen items-center justify-center bg-gray-100">
+        <Card className="w-full max-w-md p-6">
+          <CardHeader>
+            <CardTitle>Waiting for the game to start...</CardTitle>
+          </CardHeader>
+          <CardContent className="space-y-4">
+            <div>
+              <h3 className="text-lg font-semibold">Players in Room:</h3>
+              <ul className="list-disc pl-5">
+                {players.map((player) => (
+                  <li key={player}>
+                    {player} {player === username && isAdmin && "(Admin)"}
+                  </li>
+                ))}
+              </ul>
+            </div>
+            {isAdmin && (
+              <Button onClick={startGame} className="w-full">
+                Start Game
+              </Button>
+            )}
+          </CardContent>
+        </Card>
       </div>
     );
   }
 
   return (
-    <div className="p-4">
-      <div className="flex gap-4">
-        <div>
-          <h2>Players:</h2>
-          <ul>
-            {players.map((player) => (
-              <li key={player}>
-                {player} {player === currentDrawer && "(Drawing)"} -{" "}
-                {scores[player] || 0} pts
-              </li>
-            ))}
-          </ul>
-        </div>
-        <div>
-          <h2>
-            Round {round}/{maxRounds} - Word: {word} - Time: {timeLeft}s
-          </h2>
-          <canvas
-            ref={canvasRef}
-            width={800}
-            height={400}
-            className="border"
-            onMouseDown={startDrawing}
-            onMouseUp={stopDrawing}
-            onMouseMove={draw}
-          />
-          <div className="mt-2">
-            <input
+    <div className="min-h-screen bg-gray-100 p-4">
+      <div className="flex flex-col md:flex-row gap-6 max-w-7xl mx-auto">
+        <Card className="w-full md:w-1/4">
+          <CardHeader>
+            <CardTitle>Players</CardTitle>
+          </CardHeader>
+          <CardContent>
+            <ul className="space-y-2">
+              {players.map((player) => (
+                <li key={player} className="text-sm">
+                  {player} {player === currentDrawer && "(Drawing)"} -{" "}
+                  {scores[player] || 0} pts
+                </li>
+              ))}
+            </ul>
+          </CardContent>
+        </Card>
+        <div className="w-full md:w-3/4 space-y-4">
+          <Card>
+            <CardHeader>
+              <CardTitle>
+                Round {round}/{maxRounds} - Word: {word} - Time: {timeLeft}s
+              </CardTitle>
+            </CardHeader>
+            <CardContent>
+              <canvas
+                ref={canvasRef}
+                width={800}
+                height={400}
+                className="w-full border rounded-md"
+                onMouseDown={startDrawing}
+                onMouseUp={stopDrawing}
+                onMouseMove={draw}
+              />
+            </CardContent>
+          </Card>
+          <div className="flex gap-2">
+            <Input
               type="text"
               value={guessInput}
               onChange={(e) => setGuessInput(e.target.value)}
               placeholder="Your guess"
-              className="p-2 border"
               disabled={username === currentDrawer}
+              className="flex-1"
             />
-            <button
+            <Button
               onClick={submitGuess}
-              className="ml-2 px-4 py-2 bg-green-500 text-white"
               disabled={username === currentDrawer}
+              className="bg-green-500 hover:bg-green-600"
             >
               Guess
-            </button>
+            </Button>
           </div>
-          <div className="mt-2">
-            <h3>Guesses:</h3>
-            {guesses.map((guess, i) => (
-              <div key={i}>{guess}</div>
-            ))}
-          </div>
+          <Card>
+            <CardHeader>
+              <CardTitle>Guesses</CardTitle>
+            </CardHeader>
+            <CardContent>
+              <div className="space-y-1">
+                {guesses.map((guess, i) => (
+                  <div key={i} className="text-sm">
+                    {guess}
+                  </div>
+                ))}
+              </div>
+            </CardContent>
+          </Card>
         </div>
       </div>
     </div>
