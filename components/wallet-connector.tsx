@@ -9,6 +9,7 @@ import { trimAddress } from "@/lib/utils";
 
 export default function WalletConnector() {
   const { authenticated, ready, login, logout } = usePrivy();
+  console.log("authenticated", authenticated);
   const { address } = useAccount();
   return (
     <>
