@@ -1,5 +1,6 @@
 import { Server } from "socket.io";
 import { createServer } from "http";
+import { v4 as uuidv4 } from 'uuid';
 
 const server = createServer();
 const io = new Server(server, {
@@ -207,131 +208,83 @@ io.on("connection", (socket) => {
   let currentRoomId: string | null = null;
   let currentUsername: string | null = null;
 
-  socket.on("joinPublicGame", ({ username }: { username: string }) => {
+  socket.on("createRoom", ({ username }: { username: string }) => {
+    const newRoomId = uuidv4();
+    rooms[newRoomId] = {
+      players: [username],
+      admin: username,
+      currentDrawer: "",
+      currentWord: "",
+      scores: {},
+      round: 0,
+      maxRounds: 3,
+      usedWords: [],
+      gameStarted: false,
+      roundStartTime: 0,
+      disconnectedPlayers: {},
+    };
+    currentRoomId = newRoomId;
     currentUsername = username;
-    const availableRoom = publicRooms.find(
-      (roomId) =>
-        rooms[roomId] &&
-        rooms[roomId].isPublic &&
-        rooms[roomId].players.length < MAX_PLAYERS_PER_ROOM &&
-        !rooms[roomId].gameStarted
-    );
+    socket.join(newRoomId);
+    socket.emit("roomCreated", { roomId: newRoomId });
+  });
 
-    if (availableRoom) {
-      currentRoomId = availableRoom;
-    } else {
-      currentRoomId = `public-${Date.now()}`;
-      rooms[currentRoomId] = {
-        players: [],
-        admin: "system",
-        currentDrawer: "",
-        currentWord: "",
-        scores: {},
-        round: 0,
-        maxRounds: 3,
-        usedWords: [],
-        gameStarted: false,
-        roundStartTime: 0,
-        disconnectedPlayers: {},
-        isPublic: true,
-      };
-      publicRooms.push(currentRoomId);
-      setTimeout(() => {
-        if (
-          currentRoomId &&
-          rooms[currentRoomId] &&
-          rooms[currentRoomId].players.length >= MIN_PLAYERS_PER_ROOM
-        ) {
-          rooms[currentRoomId].gameStarted = true;
-          io.to(currentRoomId).emit("gameStarted");
-          startNewRound(currentRoomId);
-        } else {
-          io.to(currentRoomId!).emit("gameCancelled", "Not enough players");
-          delete rooms[currentRoomId!];
-          publicRooms.splice(publicRooms.indexOf(currentRoomId!), 1);
-        }
-      }, 60 * 1000);
+  socket.on("joinRoom", ({ roomId, username }: { roomId: string; username: string }) => {
+    const room = rooms[roomId];
+    
+    if (!room) {
+      socket.emit("joinError", "Room not found. Please check the game link and try again.");
+      return;
     }
 
-    socket.join(currentRoomId);
-    const room = rooms[currentRoomId];
+    if (room.gameStarted && !room.players.includes(username)) {
+      socket.emit("joinError", "Game is already in progress. Please wait for it to end or create a new room.");
+      return;
+    }
+
+    if (room.players.length >= MAX_PLAYERS_PER_ROOM && !room.players.includes(username)) {
+      socket.emit("joinError", "Room is full. Maximum players reached.");
+      return;
+    }
+
+    socket.join(roomId);
+    currentRoomId = roomId;
+    currentUsername = username;
+
+    if (room.disconnectedPlayers[username]) {
+      delete room.disconnectedPlayers[username];
+      console.log(`Player ${username} rejoined room ${roomId}`);
+    }
+
     if (!room.players.includes(username)) {
       room.players.push(username);
-      room.scores[username] = 0;
+      room.scores[username] = room.scores[username] || 0;
+      console.log(`Player ${username} added to room ${roomId}. Total players: ${room.players.length}`);
+    } else {
+      console.log(`Player ${username} already in room ${roomId}, not adding again`);
     }
 
-    io.to(currentRoomId).emit("playersUpdate", {
+    io.to(roomId).emit("playersUpdate", {
       players: room.players,
       scores: room.scores,
       admin: room.admin,
     });
-    socket.emit("joinedPublicGame", { roomId: currentRoomId });
-  });
 
-  socket.on(
-    "joinRoom",
-    ({ roomId, username }: { roomId: string; username: string }) => {
-      socket.join(roomId);
-      currentRoomId = roomId;
-      currentUsername = username;
-
-      if (!rooms[roomId]) {
-        rooms[roomId] = {
-          players: [],
-          admin: username,
-          currentDrawer: "",
-          currentWord: "",
-          scores: {},
-          round: 0,
-          maxRounds: 3,
-          usedWords: [],
-          gameStarted: false,
-          roundStartTime: 0,
-          disconnectedPlayers: {},
-        };
-      }
-
-      if (rooms[roomId].disconnectedPlayers[username]) {
-        delete rooms[roomId].disconnectedPlayers[username];
-        console.log(`Player ${username} rejoined room ${roomId}`);
-      }
-
-      if (!rooms[roomId].players.includes(username)) {
-        rooms[roomId].players.push(username);
-        rooms[roomId].scores[username] = rooms[roomId].scores[username] || 0;
-        console.log(
-          `Player ${username} added to room ${roomId}. Total players: ${rooms[roomId].players.length}`
-        );
-      } else {
-        console.log(
-          `Player ${username} already in room ${roomId}, not adding again`
-        );
-      }
-
-      io.to(roomId).emit("playersUpdate", {
-        players: rooms[roomId].players,
-        scores: rooms[roomId].scores,
-        admin: rooms[roomId].admin,
+    // If game is already started, send current game state to rejoining player
+    if (room.gameStarted) {
+      const timeLeft = Math.max(
+        0,
+        90 - Math.round((Date.now() - room.roundStartTime) / 1000)
+      );
+      socket.emit("startDrawing", {
+        drawer: room.currentDrawer,
+        word: room.currentDrawer === username ? room.currentWord : "_".repeat(room.currentWord.length),
+        round: room.round,
+        maxRounds: room.maxRounds,
+        time: timeLeft,
       });
-
-      if (rooms[roomId].gameStarted && rooms[roomId].round > 0) {
-        const timeLeft = Math.max(
-          0,
-          90 - Math.round((Date.now() - rooms[roomId].roundStartTime) / 1000)
-        );
-        socket.emit("startDrawing", {
-          drawer: rooms[roomId].currentDrawer,
-          word:
-            rooms[roomId].currentDrawer === username
-              ? rooms[roomId].currentWord
-              : "_".repeat(rooms[roomId].currentWord.length),
-          round: rooms[roomId].round,
-          maxRounds: rooms[roomId].maxRounds,
-          time: timeLeft,
-        });
-      }
     }
-  );
+  });
 
   socket.on("startGame", ({ roomId }) => {
     const room = rooms[roomId];
@@ -342,6 +295,11 @@ io.on("connection", (socket) => {
 
     if (room.gameStarted) {
       console.log(`Game already started in room ${roomId}`);
+      return;
+    }
+
+    if (room.players.length < MIN_PLAYERS_PER_ROOM) {
+      io.to(roomId).emit("gameError", "Not enough players to start the game.");
       return;
     }
 

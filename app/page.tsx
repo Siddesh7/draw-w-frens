@@ -11,6 +11,7 @@ import {
   DialogHeader,
   DialogTitle,
 } from "@/components/ui/dialog";
+import { useSearchParams } from 'next/navigation';
 
 export default function Home() {
   const [socket, setSocket] = useState<Socket | null>(null);
@@ -35,10 +36,21 @@ export default function Home() {
   const [bufferTimeLeft, setBufferTimeLeft] = useState<number | null>(null);
   const [gameCancelled, setGameCancelled] = useState(false);
   const [joinError, setJoinError] = useState<string | null>(null);
+  const [gameLink, setGameLink] = useState<string>("");
 
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const timerRef = useRef<NodeJS.Timeout | null>(null);
   let isDrawing = false;
+
+  const searchParams = useSearchParams();
+
+  useEffect(() => {
+    // Check for room ID in URL
+    const roomIdFromUrl = searchParams.get('room');
+    if (roomIdFromUrl) {
+      setRoomId(roomIdFromUrl);
+    }
+  }, [searchParams]);
 
   useEffect(() => {
     const socketUrl =
@@ -57,11 +69,7 @@ export default function Home() {
     newSocket.on("connect", () => {
       console.log("Connected to WebSocket server");
       if (isJoined && roomId) {
-        if (isPublicGame) {
-          newSocket.emit("joinPublicGame", { username });
-        } else {
-          newSocket.emit("joinRoom", { roomId, username });
-        }
+        newSocket.emit("joinRoom", { roomId, username });
       }
     });
 
@@ -73,31 +81,24 @@ export default function Home() {
     newSocket.on("reconnect", () => {
       console.log("Reconnected to WebSocket server");
       if (isJoined && roomId) {
-        if (isPublicGame) {
-          newSocket.emit("joinPublicGame", { username });
-        } else {
-          newSocket.emit("joinRoom", { roomId, username });
-        }
+        newSocket.emit("joinRoom", { roomId, username });
       }
     });
 
-    newSocket.on("joinedPublicGame", ({ roomId }) => {
+    newSocket.on("roomCreated", ({ roomId }) => {
       setRoomId(roomId);
-      setBufferTimeLeft(60);
-      const bufferInterval = setInterval(() => {
-        setBufferTimeLeft((prev) => (prev && prev > 0 ? prev - 1 : 0));
-      }, 1000);
-      setTimeout(() => clearInterval(bufferInterval), 60 * 1000);
-    });
-
-    newSocket.on("gameCancelled", (message) => {
-      setGameCancelled(true);
-      alert(message);
+      setIsJoined(true);
+      setIsAdmin(true);
+      // Generate game link
+      const link = `${window.location.origin}?room=${roomId}`;
+      setGameLink(link);
+      // Update URL without reloading
+      window.history.pushState({}, '', link);
     });
 
     newSocket.on("joinError", (message: string) => {
       setJoinError(message);
-      setIsJoined(false); // Reset join state if error occurs
+      setIsJoined(false);
       console.log(`Join error: ${message}`);
     });
 
@@ -186,11 +187,16 @@ export default function Home() {
       if (timerRef.current) clearInterval(timerRef.current);
     });
 
+    newSocket.on("gameCancelled", (message) => {
+      setGameCancelled(true);
+      alert(message);
+    });
+
     return () => {
       newSocket.disconnect();
       if (timerRef.current) clearInterval(timerRef.current);
     };
-  }, [currentDrawer, isJoined, roomId, username, isPublicGame]);
+  }, [currentDrawer, isJoined, roomId, username]);
 
   const clearCanvas = () => {
     if (canvasRef.current) {
@@ -201,18 +207,16 @@ export default function Home() {
     }
   };
 
-  const joinPublicGame = () => {
+  const createRoom = () => {
     if (socket && username) {
-      socket.emit("joinPublicGame", { username });
-      setIsJoined(true);
-      setIsPublicGame(true);
+      socket.emit("createRoom", { username });
     }
   };
 
   const joinPrivateRoom = () => {
     if (socket && roomId && username) {
+      setIsJoined(true); // Set joined state before emitting join event
       socket.emit("joinRoom", { roomId, username });
-      setIsJoined(true);
     }
   };
 
@@ -283,12 +287,17 @@ export default function Home() {
     }
   };
 
+  const copyGameLink = () => {
+    navigator.clipboard.writeText(gameLink);
+    alert("Game link copied to clipboard!");
+  };
+
   if (!isJoined) {
     return (
       <div className="flex min-h-screen items-center justify-center bg-gray-100">
         <Card className="w-full max-w-md p-6">
           <CardHeader>
-            <CardTitle>Join a Game</CardTitle>
+            <CardTitle>Join or Create a Game</CardTitle>
           </CardHeader>
           <CardContent className="space-y-4">
             <Input
@@ -298,8 +307,8 @@ export default function Home() {
               onChange={(e) => setUsername(e.target.value)}
               className="w-full"
             />
-            <Button onClick={joinPublicGame} className="w-full">
-              Join Public Game (10 AM / 10 PM IST)
+            <Button onClick={createRoom} className="w-full">
+              Create New Room
             </Button>
             <div className="space-y-2">
               <Input
@@ -314,7 +323,7 @@ export default function Home() {
                 variant="outline"
                 className="w-full"
               >
-                Join Private Room
+                Join Existing Room
               </Button>
             </div>
           </CardContent>
@@ -415,6 +424,27 @@ export default function Home() {
             <CardTitle>Waiting for the game to start...</CardTitle>
           </CardHeader>
           <CardContent className="space-y-4">
+            {isAdmin && (
+              <>
+                <div className="space-y-2">
+                  <p className="text-sm font-medium">Game Link:</p>
+                  <div className="flex gap-2">
+                    <Input
+                      type="text"
+                      value={gameLink}
+                      readOnly
+                      className="flex-1"
+                    />
+                    <Button onClick={copyGameLink} variant="outline">
+                      Copy
+                    </Button>
+                  </div>
+                </div>
+                <Button onClick={startGame} className="w-full">
+                  Start Game
+                </Button>
+              </>
+            )}
             <div>
               <h3 className="text-lg font-semibold">Players in Room:</h3>
               <ul className="list-disc pl-5">
@@ -425,11 +455,6 @@ export default function Home() {
                 ))}
               </ul>
             </div>
-            {isAdmin && (
-              <Button onClick={startGame} className="w-full">
-                Start Game
-              </Button>
-            )}
           </CardContent>
         </Card>
       </div>
