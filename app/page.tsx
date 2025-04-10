@@ -23,71 +23,243 @@ import {
 import { privateKeyToAccount } from "viem/accounts";
 
 const ESCROW_CONTRACT_ADDRESS =
-  "0xA4aD27A37B6e73756b95bA73b605329a39Bf3CF1" as `0x${string}`;
+  "0xc4c5223f82464bcDB06083911444DC380c41cDa7" as `0x${string}`;
 const DEPOSIT_AMOUNT = "0.0005"; // Fixed deposit amount in ETH
 
 const ESCROW_ABI = [
   {
-    name: "owner",
-    type: "function",
-    stateMutability: "view",
-    inputs: [],
-    outputs: [{ name: "", type: "address" }],
-  },
-  {
-    name: "deposit",
-    type: "function",
-    stateMutability: "payable",
-    inputs: [{ name: "roomId", type: "string" }],
-    outputs: [],
-  },
-  {
-    name: "startGame",
-    type: "function",
-    stateMutability: "nonpayable",
-    inputs: [{ name: "roomId", type: "string" }],
-    outputs: [],
-  },
-  {
+    inputs: [
+      {
+        internalType: "string",
+        name: "roomId",
+        type: "string",
+      },
+      {
+        internalType: "address",
+        name: "winner",
+        type: "address",
+      },
+    ],
     name: "declareWinner",
-    type: "function",
-    stateMutability: "nonpayable",
-    inputs: [
-      { name: "roomId", type: "string" },
-      { name: "winner", type: "address" },
-    ],
     outputs: [],
+    stateMutability: "nonpayable",
+    type: "function",
   },
   {
+    inputs: [
+      {
+        internalType: "string",
+        name: "roomId",
+        type: "string",
+      },
+    ],
+    name: "deposit",
+    outputs: [],
+    stateMutability: "payable",
+    type: "function",
+  },
+  {
+    inputs: [
+      {
+        internalType: "string",
+        name: "roomId",
+        type: "string",
+      },
+    ],
+    name: "startGame",
+    outputs: [],
+    stateMutability: "nonpayable",
+    type: "function",
+  },
+  {
+    inputs: [],
+    stateMutability: "nonpayable",
+    type: "constructor",
+  },
+  {
+    anonymous: false,
+    inputs: [
+      {
+        indexed: false,
+        internalType: "string",
+        name: "roomId",
+        type: "string",
+      },
+      {
+        indexed: false,
+        internalType: "address",
+        name: "player",
+        type: "address",
+      },
+      {
+        indexed: false,
+        internalType: "uint256",
+        name: "amount",
+        type: "uint256",
+      },
+    ],
+    name: "DepositMade",
+    type: "event",
+  },
+  {
+    anonymous: false,
+    inputs: [
+      {
+        indexed: false,
+        internalType: "string",
+        name: "roomId",
+        type: "string",
+      },
+      {
+        indexed: false,
+        internalType: "address",
+        name: "player",
+        type: "address",
+      },
+      {
+        indexed: false,
+        internalType: "uint256",
+        name: "amount",
+        type: "uint256",
+      },
+    ],
+    name: "FundsWithdrawn",
+    type: "event",
+  },
+  {
+    anonymous: false,
+    inputs: [
+      {
+        indexed: false,
+        internalType: "string",
+        name: "roomId",
+        type: "string",
+      },
+      {
+        indexed: false,
+        internalType: "address",
+        name: "winner",
+        type: "address",
+      },
+    ],
+    name: "WinnerDeclared",
+    type: "event",
+  },
+  {
+    inputs: [
+      {
+        internalType: "string",
+        name: "roomId",
+        type: "string",
+      },
+    ],
     name: "withdraw",
-    type: "function",
-    stateMutability: "nonpayable",
-    inputs: [{ name: "roomId", type: "string" }],
     outputs: [],
+    stateMutability: "nonpayable",
+    type: "function",
   },
   {
-    name: "getRoomInfo",
-    type: "function",
-    stateMutability: "view",
-    inputs: [{ name: "roomId", type: "string" }],
-    outputs: [
-      { name: "players", type: "address[]" },
-      { name: "totalDeposited", type: "uint256" },
-      { name: "gameActive", type: "bool" },
-      { name: "winner", type: "address" },
-    ],
-  },
-  {
-    name: "deposits",
-    type: "function",
-    stateMutability: "view",
     inputs: [
-      { name: "roomId", type: "string" },
-      { name: "player", type: "address" },
+      {
+        internalType: "string",
+        name: "",
+        type: "string",
+      },
+      {
+        internalType: "address",
+        name: "",
+        type: "address",
+      },
     ],
-    outputs: [{ type: "uint256" }],
+    name: "deposits",
+    outputs: [
+      {
+        internalType: "uint256",
+        name: "",
+        type: "uint256",
+      },
+    ],
+    stateMutability: "view",
+    type: "function",
+  },
+  {
+    inputs: [
+      {
+        internalType: "string",
+        name: "roomId",
+        type: "string",
+      },
+    ],
+    name: "getRoomInfo",
+    outputs: [
+      {
+        internalType: "address[]",
+        name: "players",
+        type: "address[]",
+      },
+      {
+        internalType: "uint256",
+        name: "totalDeposited",
+        type: "uint256",
+      },
+      {
+        internalType: "bool",
+        name: "gameActive",
+        type: "bool",
+      },
+      {
+        internalType: "address",
+        name: "winner",
+        type: "address",
+      },
+    ],
+    stateMutability: "view",
+    type: "function",
+  },
+  {
+    inputs: [],
+    name: "owner",
+    outputs: [
+      {
+        internalType: "address",
+        name: "",
+        type: "address",
+      },
+    ],
+    stateMutability: "view",
+    type: "function",
+  },
+  {
+    inputs: [
+      {
+        internalType: "string",
+        name: "",
+        type: "string",
+      },
+    ],
+    name: "rooms",
+    outputs: [
+      {
+        internalType: "uint256",
+        name: "totalDeposited",
+        type: "uint256",
+      },
+      {
+        internalType: "bool",
+        name: "gameActive",
+        type: "bool",
+      },
+      {
+        internalType: "address",
+        name: "winner",
+        type: "address",
+      },
+    ],
+    stateMutability: "view",
+    type: "function",
   },
 ] as const;
+import { useSearchParams } from "next/navigation";
 
 export default function Home() {
   const { authenticated } = usePrivy();
@@ -122,13 +294,14 @@ export default function Home() {
     `0x${string}` | undefined
   >();
   const [withdrawHash, setWithdrawHash] = useState<`0x${string}` | undefined>();
+  const [gameLink, setGameLink] = useState<string>("");
 
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const timerRef = useRef<NodeJS.Timeout | null>(null);
   let isDrawing = false;
 
   // Contract hooks
-  const { writeContract } = useWriteContract();
+  const { writeContractAsync } = useWriteContract();
 
   const { data: userDeposit } = useReadContract({
     address: ESCROW_CONTRACT_ADDRESS,
@@ -197,13 +370,22 @@ export default function Home() {
     try {
       setIsDepositPending(true);
       const ethInWei = parseEther(DEPOSIT_AMOUNT);
-
-      const hash = await writeContract({
+      console.log("Deposit amount in wei:", ethInWei.toString());
+      console.log({
         address: ESCROW_CONTRACT_ADDRESS,
         abi: ESCROW_ABI,
         functionName: "deposit",
         args: [roomId],
         value: ethInWei,
+        chainId: 84532,
+      });
+      const hash = await writeContractAsync({
+        address: ESCROW_CONTRACT_ADDRESS,
+        abi: ESCROW_ABI,
+        functionName: "deposit",
+        args: [roomId],
+        value: ethInWei,
+        chainId: 84532,
       });
 
       setDepositHash(hash as any);
@@ -217,11 +399,12 @@ export default function Home() {
   const startGame = async () => {
     if (isAdmin && roomId) {
       try {
-        const hash = await writeContract({
+        const hash = await writeContractAsync({
           address: ESCROW_CONTRACT_ADDRESS,
           abi: ESCROW_ABI,
           functionName: "startGame",
           args: [roomId],
+          chainId: 84532,
         });
 
         setStartGameHash(hash as any);
@@ -240,7 +423,7 @@ export default function Home() {
     }
     if (roomId) {
       try {
-        const hash = await writeContract({
+        const hash = await writeContractAsync({
           address: ESCROW_CONTRACT_ADDRESS,
           abi: ESCROW_ABI,
           functionName: "declareWinner",
@@ -248,6 +431,7 @@ export default function Home() {
           account: privateKeyToAccount(
             process.env.NEXT_PUBLIC_PRIVATE_KEY as `0x${string}`
           ),
+          chainId: 84532,
         });
 
         setDeclareWinnerHash(hash as any);
@@ -261,11 +445,12 @@ export default function Home() {
   const withdrawWinnings = async () => {
     if (roomId && address === gameWinner) {
       try {
-        const hash = await writeContract({
+        const hash = await writeContractAsync({
           address: ESCROW_CONTRACT_ADDRESS,
           abi: ESCROW_ABI,
           functionName: "withdraw",
           args: [roomId],
+          chainId: 84532,
         });
 
         setWithdrawHash(hash as any);
@@ -274,6 +459,15 @@ export default function Home() {
       }
     }
   };
+  const searchParams = useSearchParams();
+
+  useEffect(() => {
+    // Check for room ID in URL
+    const roomIdFromUrl = searchParams.get("room");
+    if (roomIdFromUrl) {
+      setRoomId(roomIdFromUrl);
+    }
+  }, [searchParams]);
 
   useEffect(() => {
     const socketUrl =
@@ -316,18 +510,15 @@ export default function Home() {
       }
     });
 
-    newSocket.on("joinedPublicGame", ({ roomId }) => {
+    newSocket.on("roomCreated", ({ roomId }) => {
       setRoomId(roomId);
-      setBufferTimeLeft(60);
-      const bufferInterval = setInterval(() => {
-        setBufferTimeLeft((prev) => (prev && prev > 0 ? prev - 1 : 0));
-      }, 1000);
-      setTimeout(() => clearInterval(bufferInterval), 60 * 1000);
-    });
-
-    newSocket.on("gameCancelled", (message) => {
-      setGameCancelled(true);
-      alert(message);
+      setIsJoined(true);
+      setIsAdmin(true);
+      // Generate game link
+      const link = `${window.location.origin}?room=${roomId}`;
+      setGameLink(link);
+      // Update URL without reloading
+      window.history.pushState({}, "", link);
     });
 
     newSocket.on("joinError", (message: string) => {
@@ -410,6 +601,11 @@ export default function Home() {
       }
     });
 
+    newSocket.on("gameCancelled", (message) => {
+      setGameCancelled(true);
+      alert(message);
+    });
+
     return () => {
       newSocket.disconnect();
       if (timerRef.current) clearInterval(timerRef.current);
@@ -446,6 +642,11 @@ export default function Home() {
       socket.emit("joinPublicGame", { username: address });
       setIsJoined(true);
       setIsPublicGame(true);
+    }
+  };
+  const createRoom = () => {
+    if (socket && address) {
+      socket.emit("createRoom", { username: address });
     }
   };
 
@@ -526,13 +727,17 @@ export default function Home() {
       </div>
     );
   }
+  const copyGameLink = () => {
+    navigator.clipboard.writeText(gameLink);
+    alert("Game link copied to clipboard!");
+  };
 
   if (!isJoined) {
     return (
       <div className="flex min-h-screen items-center justify-center bg-gray-100">
         <Card className="w-full max-w-md p-6">
           <CardHeader>
-            <CardTitle>Join a Game</CardTitle>
+            <CardTitle>Join or Create a Game</CardTitle>
           </CardHeader>
           <CardContent className="space-y-4">
             <p className="text-center text-gray-600">
@@ -545,6 +750,16 @@ export default function Home() {
               </p>
             )}
 
+            {/* <Input
+              type="text"
+              placeholder="Username"
+              value={username}
+              onChange={(e) => setUsername(e.target.value)}
+              className="w-full"
+            /> */}
+            <Button onClick={createRoom} className="w-full">
+              Create New Room
+            </Button>
             <div className="space-y-2">
               <Input
                 type="text"
@@ -720,6 +935,27 @@ export default function Home() {
             <CardTitle>Waiting for the game to start...</CardTitle>
           </CardHeader>
           <CardContent className="space-y-4">
+            {isAdmin && (
+              <>
+                <div className="space-y-2">
+                  <p className="text-sm font-medium">Game Link:</p>
+                  <div className="flex gap-2">
+                    <Input
+                      type="text"
+                      value={gameLink}
+                      readOnly
+                      className="flex-1"
+                    />
+                    <Button onClick={copyGameLink} variant="outline">
+                      Copy
+                    </Button>
+                  </div>
+                </div>
+                <Button onClick={startGame} className="w-full">
+                  Start Game
+                </Button>
+              </>
+            )}
             <div>
               <h3 className="text-lg font-semibold">Players in Room:</h3>
               <ul className="list-disc pl-5">
